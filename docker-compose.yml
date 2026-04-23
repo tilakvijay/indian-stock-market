@@ -1,0 +1,16 @@
+services:
+  app:
+    container_name: indian-stock-pipeline
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - app_cache:/app/.cache
+    ports:
+      - "8501:8501"
+    restart: unless-stopped
+
+volumes:
+  app_cache:

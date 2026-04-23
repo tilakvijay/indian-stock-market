@@ -1,0 +1,121 @@
+Metadata-Version: 2.4
+Name: indian-stock-pipeline
+Version: 0.1.0
+Summary: Interactive Indian stock analysis pipeline with regime detection, pattern mining, and buy/exit guidance.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.26.4
+Requires-Dist: pandas>=2.2.2
+Requires-Dist: scipy>=1.13.1
+Requires-Dist: scikit-learn>=1.5.1
+Requires-Dist: statsmodels>=0.14.2
+Requires-Dist: streamlit>=1.44.1
+Requires-Dist: plotly>=5.24.1
+Requires-Dist: requests>=2.32.3
+Requires-Dist: yfinance>=0.2.54
+Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: pydantic>=2.8.2
+Requires-Dist: pydantic-settings>=2.4.0
+Requires-Dist: hmmlearn>=0.3.2
+Requires-Dist: pykalman>=0.9.7
+Requires-Dist: ruptures>=1.1.9
+Requires-Dist: stumpy>=1.13.0
+Requires-Dist: hurst>=0.0.5
+Requires-Dist: jugaad-data>=0.33.1
+Requires-Dist: nsepython>=2.97; sys_platform == "win32"
+Requires-Dist: nsepythonserver>=2.97; sys_platform != "win32"
+Requires-Dist: vectorbt>=0.26.2
+Requires-Dist: torch>=2.5.0
+
+# Indian Stock Analysis Pipeline
+
+This project is a from-scratch Indian stock analysis app with:
+
+- A simple Streamlit UI that accepts a company name.
+- Symbol resolution through Yahoo Finance search and NSE-friendly symbol handling.
+- Open-source Indian market data using `jugaad-data` and `nsepython`.
+- Multi-layer analytics covering statistical features, microstructure proxies, regime detection, pattern matching, optional PyTorch forecasting, and backtesting.
+- Docker-first deployment with `.env` support and no paid broker dependency.
+
+## What it does
+
+The app resolves a company name, downloads market data, computes advanced features, and produces:
+
+- A primary action: `BUY`, `WATCH`, `HOLD`, or `REDUCE`
+- Confidence score
+- Suggested entry zone
+- Suggested stop-loss and trailing stop
+- Suggested profit-taking / exit target
+- Regime and risk context
+- Backtest summary for the strategy shell
+
+## Architecture
+
+The pipeline is organized into five layers:
+
+1. `data`: company resolution plus `jugaad-data`, `nsepython`, and `yfinance` adapters
+2. `features`: realized volatility, Hurst exponent, autocorrelation, Amihud, Roll spread, VWAP deviation, OFI proxy, ATR, trend and volume context
+3. `models`: HMM regime filter, Kalman trend, PELT breakpoints, matrix profile motif signal, DTW similarity, optional torch sequence forecaster
+4. `signals`: ensemble scoring and entry / exit guidance
+5. `backtesting`: vectorbt wrapper for a quick historical sanity check
+
+More detail lives in [docs/architecture.md](docs/architecture.md).
+
+## Quick start
+
+### 1. Create `.env`
+
+Copy `.env.example` to `.env` and fill in whatever you have:
+
+```env
+DEFAULT_EXCHANGE=NSE
+DATA_PROVIDER=auto
+DATA_CACHE_DIR=.cache/market_data
+ENABLE_TORCH_MODEL=false
+```
+
+No paid broker credentials are needed. The app uses:
+
+- `jugaad-data` for NSE historical cash-market data and bhavcopy downloads
+- `nsepython` on Windows and `nsepythonserver` inside Docker/Linux for live F&O chain and institutional-flow snapshots
+- `yfinance` as backup and cross-validation, especially for recent intraday bars
+
+### 2. Install locally
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -e .
+$env:PYTHONPATH = "src"
+streamlit run src/indian_stock_pipeline/ui/streamlit_app.py
+```
+
+### 3. Run with Docker
+
+```powershell
+docker build -t indian-stock-pipeline .
+docker run --env-file .env -p 8501:8501 indian-stock-pipeline
+```
+
+Or with Compose:
+
+```powershell
+docker compose up --build
+```
+
+## Notes on data
+
+- `jugaad-data` is the default historical source in `auto` mode.
+- `yfinance` is used as the intraday backup and a closing-price cross-check.
+- `nsepython` is used for NSE live option-chain and FII/DII context when the runtime can reach those endpoints.
+- Some microstructure features require true tick or order-book data to be institutionally faithful. This build uses robust EOD/intraday proxies when raw tick data is unavailable.
+- Recent intraday history in this open-source stack is not as complete as paid broker APIs, so the pipeline explicitly treats intraday as a supporting input rather than a perfect tick-level source.
+- The optional torch forecaster is intentionally lightweight so it can fit on a 4 GB GPU.
+
+## Future upgrades
+
+- Add NSE / BSE direct adapters for alternative data feeds
+- Add FII / DII flow ingestion
+- Add Moneycontrol / news sentiment collectors
+- Expand pattern library with Topological Data Analysis
+- Add walk-forward purged CV notebooks and scheduled retraining

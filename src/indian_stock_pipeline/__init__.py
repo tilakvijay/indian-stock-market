@@ -1,0 +1,1 @@
+"""Indian stock analysis pipeline."""
