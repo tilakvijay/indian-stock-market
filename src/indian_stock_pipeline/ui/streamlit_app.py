@@ -13,6 +13,7 @@ if str(PROJECT_SRC) not in sys.path:
 
 from indian_stock_pipeline.core.config import get_settings
 from indian_stock_pipeline.core.pipeline import StockAnalysisPipeline
+from indian_stock_pipeline.ui.ai_components import render_ai_config_sidebar, render_ai_commentary, render_ai_chat
 
 
 def _build_price_chart(features: pd.DataFrame, exit_target: float, stop_loss: float) -> go.Figure:
@@ -300,6 +301,111 @@ def _render_advanced(result) -> None:
         st.dataframe(latest.rename("value").to_frame(), use_container_width=True)
 
 
+def _render_best_buy_timing(result) -> None:
+    """Render best buy timing analysis — when was the best time to buy, and when is next."""
+    from indian_stock_pipeline.ui.history_service import _compute_best_buy_timing
+
+    st.subheader("🎯 Best Buy Timing Analysis")
+    timing = _compute_best_buy_timing(result.features)
+
+    if timing.get("error") or timing.get("note"):
+        st.warning(timing.get("error") or timing.get("note"))
+        return
+
+    # Key timing metrics
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Best Buy (Last Year)", f"₹{timing.get('best_buy_price', 'N/A')}")
+    col2.metric("Best Buy Date", timing.get("best_buy_date", "N/A"))
+    col3.metric("Current Price", f"₹{timing.get('current_price', 'N/A')}")
+    gain = timing.get("gain_if_bought_at_low", 0)
+    col4.metric("Gain from Low", f"{gain:.1f}%", delta=f"{gain:.1f}%")
+
+    # Next opportunity
+    st.markdown("---")
+    st.subheader("⏰ Next Opportunity")
+    opp = timing.get("next_opportunity", "Unknown")
+    strength = timing.get("opportunity_strength", "Unknown")
+    color_map = {"Strong": "🟢", "Moderate": "🟡", "Patient": "🟠", "Neutral": "⚪"}
+    st.info(f"{color_map.get(strength, '⚪')} **{strength}**: {opp}")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Support Level", f"₹{timing.get('support_level', 'N/A')}")
+    col2.metric("Avg Days Between Dips", timing.get("avg_days_between_dips", "N/A"))
+    col3.metric("Estimated Next Dip", timing.get("estimated_next_dip", "N/A"))
+
+    # Recent dips table
+    dips = timing.get("recent_dips", [])
+    if dips:
+        st.subheader("📉 Recent Buy Opportunities (Local Minima)")
+        st.dataframe(pd.DataFrame(dips), use_container_width=True, hide_index=True)
+
+
+def _render_history() -> None:
+    """Render analysis history tab."""
+    from indian_stock_pipeline.ui.history_service import load_history, clear_history
+
+    st.subheader("📋 Analysis History")
+    history = load_history(limit=50)
+
+    if not history:
+        st.info("No analysis history yet. Run an analysis to start building your history.")
+        return
+
+    col1, col2 = st.columns([4, 1])
+    with col2:
+        if st.button("🗑️ Clear All", key="clear_history_btn"):
+            n = clear_history()
+            st.success(f"Cleared {n} records.")
+            st.rerun()
+
+    # Summary table
+    rows = []
+    for h in history:
+        rows.append({
+            "Date": h.get("timestamp", "")[:19].replace("T", " "),
+            "Symbol": h.get("display_name", h.get("symbol", "?")),
+            "Action": h.get("action", "?"),
+            "Confidence": f"{h.get('confidence', 0):.0%}",
+            "Close": f"₹{h.get('close', 0):.2f}",
+            "Regime": h.get("regime_label", "?").replace("_", " ").title(),
+            "R:R": f"{h.get('risk_reward', 0):.1f}",
+            "Next Opp.": h.get("best_buy_timing", {}).get("next_opportunity", "N/A")[:40],
+        })
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # Expandable detail for each run
+    for i, h in enumerate(history[:10]):
+        label = f"{h.get('timestamp', '')[:19]} — {h.get('display_name', '?')} — {h.get('action', '?')}"
+        with st.expander(label):
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Action", h.get("action"))
+            c2.metric("Confidence", f"{h.get('confidence', 0):.0%}")
+            c3.metric("Setup", h.get("setup_quality"))
+
+            c4, c5, c6 = st.columns(3)
+            c4.metric("Entry", f"₹{h.get('entry_low', 0):.2f} - ₹{h.get('entry_high', 0):.2f}")
+            c5.metric("Stop-loss", f"₹{h.get('stop_loss', 0):.2f}")
+            c6.metric("Target", f"₹{h.get('exit_target', 0):.2f}")
+
+            bt = h.get("backtest", {})
+            if bt:
+                b1, b2, b3 = st.columns(3)
+                b1.metric("Sharpe", f"{bt.get('sharpe_ratio', 0):.2f}")
+                b2.metric("Win Rate", f"{bt.get('win_rate', 0):.0%}")
+                b3.metric("Max DD", f"{bt.get('max_drawdown', 0):.2%}")
+
+            timing = h.get("best_buy_timing", {})
+            if timing and not timing.get("error"):
+                st.write(f"**Best buy**: ₹{timing.get('best_buy_price', '?')} on {timing.get('best_buy_date', '?')}")
+                st.write(f"**Next opportunity**: {timing.get('next_opportunity', 'N/A')}")
+                st.write(f"**Est. next dip**: {timing.get('estimated_next_dip', 'N/A')}")
+
+            if h.get("notes"):
+                with st.expander("Analysis Notes"):
+                    for note in h["notes"]:
+                        st.write(f"- {note}")
+
+
 def render() -> None:
     settings = get_settings()
     pipeline = StockAnalysisPipeline(settings)
@@ -307,7 +413,7 @@ def render() -> None:
     st.set_page_config(page_title="Indian Stock Analysis Pipeline — SOTA Edition", layout="wide")
     st.title("🚀 Indian Stock Analysis Pipeline — SOTA Edition")
     st.caption(
-        "PatchTST deep model · Regime-adaptive ensemble · Fractional Kelly sizing · "
+        "PatchTST deep model · GLM 5.1 AI · Regime-adaptive ensemble · Fractional Kelly sizing · "
         "Walk-forward purged CV · Monte Carlo significance · India VIX / FII-DII / Delivery% / PCR integration"
     )
 
@@ -324,31 +430,47 @@ def render() -> None:
 
         st.subheader("SOTA Upgrades")
         st.markdown("""
+        - ✅ **GLM 5.1 AI** (NVIDIA NIM)
+        - ✅ AI Market Commentary & News
+        - ✅ AI Risk Reports & Chat
+        - ✅ Best Buy Timing Analysis
+        - ✅ Analysis History & Logs
         - ✅ PatchTST Transformer (FP16)
         - ✅ 30+ quant features
-        - ✅ RSI, ADX, Choppiness Index
-        - ✅ Garman-Klass & Parkinson vol
-        - ✅ Delivery %, PCR, India VIX
-        - ✅ FII/DII flow integration
-        - ✅ Multi-signal HMM regime detection
-        - ✅ Regime persistence filter
-        - ✅ 2-state Kalman (price + velocity)
-        - ✅ FastDTW with Sakoe-Chiba band
-        - ✅ Multi-window matrix profile
-        - ✅ Candlestick pattern recognition
         - ✅ Regime-adaptive signal weights
         - ✅ Fractional Kelly position sizing
-        - ✅ VIX-adaptive thresholds
         - ✅ Walk-forward purged CV
         - ✅ Monte Carlo significance test
         """)
+
+        # AI configuration in sidebar
+        render_ai_config_sidebar(settings)
 
     with st.form("analysis-form"):
         company_query = st.text_input("Company name or trading symbol", placeholder="Bharti Airtel or BHARTIARTL.NS")
         include_screener = st.checkbox("Also scan the market for top 5 buy/sell ideas", value=True)
         submitted = st.form_submit_button("Analyze")
 
-    if not submitted:
+    # --- KEY FIX: persist result in session_state ---
+    if submitted:
+        try:
+            with st.spinner("Running analysis, backtest, and market scan..."):
+                result = pipeline.analyze(company_query, include_screener=include_screener)
+            st.session_state["analysis_result"] = result
+            # Auto-save to history
+            from indian_stock_pipeline.ui.history_service import save_analysis
+            save_analysis(result)
+            # Clear stale AI action from previous stock
+            st.session_state.pop("ai_action", None)
+            st.session_state.pop("ai_result_cache", None)
+        except Exception as exc:
+            st.error(str(exc))
+            return
+
+    # Retrieve from session_state (persists across button reruns)
+    result = st.session_state.get("analysis_result")
+
+    if result is None:
         st.markdown(
             """
             ### What this app does
@@ -358,17 +480,12 @@ def render() -> None:
             - **Fractional Kelly** position sizing with VIX-based regime caps
             - Walk-forward **purged cross-validation** backtesting with **Monte Carlo** significance
             - Integrates **India VIX, FII/DII flows, delivery %, put-call ratio** from free open-source feeds
-            - Backtests the same strategy family on rolling historical data
-            - Shows top 5 long-term buy and top 5 short-term weak candidates
+            - **Best Buy Timing** — shows optimal historical buy points and predicts next opportunity
+            - **Analysis History** — every run is saved and can be reviewed later
             """
         )
-        return
-
-    try:
-        with st.spinner("Running analysis, backtest, and market scan..."):
-            result = pipeline.analyze(company_query, include_screener=include_screener)
-    except Exception as exc:  # pragma: no cover - Streamlit UX path
-        st.error(str(exc))
+        # Show history even on landing page
+        _render_history()
         return
 
     st.plotly_chart(
@@ -376,19 +493,31 @@ def render() -> None:
         use_container_width=True,
     )
 
-    tab_summary, tab_backtest, tab_market, tab_advanced = st.tabs(
-        ["Summary", "Backtest", "Market Ideas", "Advanced"]
+    tab_summary, tab_timing, tab_ai, tab_backtest, tab_market, tab_chat, tab_history, tab_advanced = st.tabs(
+        ["Summary", "🎯 Timing", "🧠 AI Analysis", "Backtest", "Market Ideas", "💬 AI Chat", "📋 History", "Advanced"]
     )
 
     with tab_summary:
         _render_recommendation_summary(result)
         _render_signal_explanations(result)
 
+    with tab_timing:
+        _render_best_buy_timing(result)
+
+    with tab_ai:
+        render_ai_commentary(result)
+
     with tab_backtest:
         _render_backtest(result)
 
     with tab_market:
         _render_market_screener(result)
+
+    with tab_chat:
+        render_ai_chat(result)
+
+    with tab_history:
+        _render_history()
 
     with tab_advanced:
         _render_advanced(result)

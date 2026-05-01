@@ -44,6 +44,16 @@ class Settings(BaseSettings):
 
     request_timeout_seconds: int = 15
 
+    # AI Model settings (NVIDIA NIM — GLM 5.1)
+    ai_api_key: str = Field(default="", alias="AI_API_KEY")
+    ai_base_url: str = Field(default="https://integrate.api.nvidia.com/v1", alias="AI_BASE_URL")
+    ai_model_name: str = Field(default="z-ai/glm-5.1", alias="AI_MODEL_NAME")
+    ai_temperature: float = Field(default=0.7, alias="AI_TEMPERATURE")
+    ai_top_p: float = Field(default=0.9, alias="AI_TOP_P")
+    ai_max_tokens: int = Field(default=4096, alias="AI_MAX_TOKENS")
+    ai_enable_thinking: bool = Field(default=False, alias="AI_ENABLE_THINKING")
+    ai_timeout: int = Field(default=120, alias="AI_TIMEOUT")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

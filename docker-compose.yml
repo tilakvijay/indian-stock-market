@@ -1,6 +1,7 @@
 services:
   app:
     container_name: indian-stock-pipeline
+    image: indian-stock-pipeline:latest
     build:
       context: .
       dockerfile: Dockerfile
